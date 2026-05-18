@@ -1,36 +1,46 @@
 import unittest
-import tempfile
 import os
-from scanner import Scanner
-
+import tempfile
+from scanner import scan_file
 
 class TestScanner(unittest.TestCase):
     def setUp(self):
-        self.scanner = Scanner()
         self.temp_dir = tempfile.mkdtemp()
 
-    def test_security_detection(self):
-        filepath = os.path.join(self.temp_dir, 'test.py')
-        with open(filepath, 'w') as f:
-            f.write('query = "SELECT * FROM users"')
-        findings = self.scanner.scan_file(filepath)
-        security_findings = [f for f in findings if f['type'] == 'SECURITY']
-        self.assertTrue(len(security_findings) > 0)
+    def test_empty_file(self):
+        file_path = os.path.join(self.temp_dir, "empty.py")
+        with open(file_path, 'w') as f:
+            f.write("")
+        issues = scan_file(file_path)
+        self.assertEqual(len(issues), 0)
 
-    def test_ast_import_detection(self):
-        filepath = os.path.join(self.temp_dir, 'test.py')
-        with open(filepath, 'w') as f:
-            f.write('import os\nimport subprocess')
-        findings = self.scanner.scan_file(filepath)
-        perf_findings = [f for f in findings if f['type'] == 'PERFORMANCE']
-        self.assertTrue(len(perf_findings) > 0)
+    def test_security_issue(self):
+        file_path = os.path.join(self.temp_dir, "security.py")
+        with open(file_path, 'w') as f:
+            f.write("eval('test')")
+        issues = scan_file(file_path)
+        self.assertTrue(any(i.get("name") == "eval" for i in issues))
 
-    def test_syntax_error_handling(self):
-        filepath = os.path.join(self.temp_dir, 'test.py')
-        with open(filepath, 'w') as f:
-            f.write('def foo(\n    print("bar")') # Syntax error
-        findings = self.scanner.scan_file(filepath)
-        self.assertIsInstance(findings, list)
+    def test_bare_except(self):
+        file_path = os.path.join(self.temp_dir, "bare.py")
+        with open(file_path, 'w') as f:
+            f.write("try:\n    pass\nexcept:\n    pass")
+        issues = scan_file(file_path)
+        self.assertTrue(any(i.get("name") == "bare_except" for i in issues))
 
-if __name__ == '__main__':
+    def test_syntax_error(self):
+        file_path = os.path.join(self.temp_dir, "bad.py")
+        with open(file_path, 'w') as f:
+            f.write("def foo(\n    pass")
+        issues = scan_file(file_path)
+        self.assertTrue(any(i.get("type") == "error" for i in issues))
+
+    def test_print_statement(self):
+        file_path = os.path.join(self.temp_dir, "print.py")
+        with open(file_path, 'w') as f:
+            f.write("print('hello')")
+        issues = scan_file(file_path)
+        self.assertTrue(any(i.get("name") == "print_statement" for i in issues))
+
+if __name__ == "__main__":
     unittest.main()

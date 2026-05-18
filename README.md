@@ -4,10 +4,10 @@ A Python CLI tool that scans code files for common issues (security, performance
 
 ## Usage
 ```bash
-python main.py /path/to/dir --severity HIGH
+python main.py /path/to/dir --category security performance style
 ```
 
 ## Setup
 ```bash
-pip install rich # Optional for enhanced terminal formatting
+# No external dependencies required.
 ```

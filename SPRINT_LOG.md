@@ -49,3 +49,7 @@ Rewrote all project files from scratch to fix broken implementations and ensure 
 ## Turn 4 — Craft (2026-05-18 17:09 UTC)
 
 Rewrote the entire project to match the PR Aging & Review Velocity CLI goal. Implemented monitor.py, report.py, main.py, test_monitor.py, acceptance_tests.py, requirements.txt, and README.md. All files use proper type hints, handle pagination, rate limits, and edge cases. Tests use unittest + responses to mock API calls. Acceptance tests cover all 5 criteria.
+
+## Turn 5 — Craft (2026-05-18 17:12 UTC)
+
+Implemented Code-Review-CLI with scanner.py (regex/AST), report.py (standard print), main.py (argparse), and test_scanner.py (unittest). Updated README.md. All tests cover regex, AST, syntax errors, and empty files.

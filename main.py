@@ -1,25 +1,27 @@
 import argparse
-import sys
-import monitor
-import report
+import os
+from scanner import scan_file
+from report import print_report
 
 def main():
-    parser = argparse.ArgumentParser(description="Org-Wide PR Aging & Review Velocity CLI")
-    parser.add_argument("--org", required=True, help="GitHub organization name")
-    parser.add_argument("--min_days_stale", type=int, default=14, help="Minimum days open to consider PR stale")
-    parser.add_argument("--output_format", type=str, default="table", help="Output format (table)")
-    
+    parser = argparse.ArgumentParser(description="Code Review CLI")
+    parser.add_argument("directory", help="Directory to scan")
+    parser.add_argument("--category", nargs='+', choices=['security', 'performance', 'style'], default=['security', 'performance', 'style'])
     args = parser.parse_args()
-    
-    try:
-        data = monitor.fetch_pr_data(args.org, args.min_days_stale)
-        if not data:
-            print("No stale PRs found.")
-            return
-        report.render_table(data)
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+
+    if not os.path.isdir(args.directory):
+        print(f"Error: '{args.directory}' is not a valid directory.")
+        return
+
+    all_issues = []
+    for root, dirs, files in os.walk(args.directory):
+        for file in files:
+            if file.endswith(('.py', '.js', '.ts')):
+                file_path = os.path.join(root, file)
+                issues = scan_file(file_path, args.category)
+                all_issues.extend(issues)
+
+    print_report(all_issues)
 
 if __name__ == "__main__":
     main()
