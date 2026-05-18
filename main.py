@@ -1,15 +1,17 @@
 import argparse
 import sys
-from scanner import scan_directory
+from scanner import Scanner
 from report import generate_report
 
 def main():
     parser = argparse.ArgumentParser(description='Code Review CLI')
     parser.add_argument('directory', help='Directory to scan')
-    parser.add_argument('--category', nargs='+', choices=['security', 'performance', 'style'], default=['security', 'performance', 'style'])
+    parser.add_argument('--category', nargs='+', default=['security', 'performance', 'style'],
+                        help='Categories to check')
     args = parser.parse_args()
-    
-    issues = scan_directory(args.directory, args.category)
+
+    scanner = Scanner(args.category)
+    issues = scanner.scan_directory(args.directory)
     generate_report(issues)
 
 if __name__ == '__main__':
