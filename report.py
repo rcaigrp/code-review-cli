@@ -1,14 +1,14 @@
 import sys
-from typing import List, Dict
+from typing import List, Dict, Any
 
-def generate_report(findings: List[Dict]) -> None:
-    if not findings:
-        print("No findings found.")
-        return
-    
-    print("\n=== Code Review Report ===\n")
-    print(f"{'File':<30} {'Category':<12} {'Severity':<8} {'Line':<6} {'Message'}")
-    print("-" * 100)
+def format_report(findings: List[Dict[str, Any]]) -> str:
+    output = "=== Code Review Report ===\n\n"
+    output += f"{'File':<30} {'Category':<12} {'Severity':<10} {'Line':<6} {'Message'}\n"
+    output += "-" * 72 + "\n"
     for f in findings:
-        print(f"{f['file']:<30} {f['category']:<12} {f['severity']:<8} {f['line']:<6} {f['message']}")
-    print("\n==========================\n")
+        output += f"{f['file']:<30} {f['category']:<12} {f['severity']:<10} {f['line']:<6} {f['message']}\n"
+    output += "\n==========================\n"
+    return output
+
+def print_report(findings: List[Dict[str, Any]]):
+    sys.stdout.write(format_report(findings))
