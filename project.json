@@ -1,0 +1,13 @@
+{
+  "goal": "Build a Python CLI tool that scans code files for common issues (security, performance, style) using regex and AST parsing. It generates a formatted report with severity levels and suggestions. No external dependencies required.",
+  "acceptance_criteria": [
+    "CLI entry point (main.py) accepting directory path and optional filters.",
+    "Scanner module using regex and ast for security, performance, and style checks.",
+    "Report module (using rich or standard print) for formatted output with severity levels.",
+    "Unit tests covering regex patterns, AST parsing, and error handling (syntax errors).",
+    "Handle edge cases: empty directories, syntax errors in files, missing fields."
+  ],
+  "meeting_budget": 5,
+  "meetings_held": 0,
+  "status": "active"
+}
