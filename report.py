@@ -1,21 +1,14 @@
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict
 
-def generate_report(issues: List[Dict[str, Any]]):
-    print("Code Review Report")
-    print("==================")
-    if not issues:
-        print("No issues found.")
+def generate_report(findings: List[Dict]) -> None:
+    if not findings:
+        print("No findings found.")
         return
-
-    print(f"Total issues: {len(issues)}")
-    print("------------------")
-    for issue in issues:
-        print(f"File: {issue.get('file', 'N/A')}")
-        print(f"Line: {issue.get('line', 'N/A')}")
-        print(f"Category: {issue.get('category', 'N/A')}")
-        print(f"Severity: {issue.get('severity', 'N/A')}")
-        print(f"Message: {issue.get('message', 'N/A')}")
-        print(f"Suggestion: {issue.get('suggestion', 'N/A')}")
-        print("------------------")
-    print("End of Report")
+    
+    print("\n=== Code Review Report ===\n")
+    print(f"{'File':<30} {'Category':<12} {'Severity':<8} {'Line':<6} {'Message'}")
+    print("-" * 100)
+    for f in findings:
+        print(f"{f['file']:<30} {f['category']:<12} {f['severity']:<8} {f['line']:<6} {f['message']}")
+    print("\n==========================\n")
