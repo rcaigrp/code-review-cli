@@ -1,70 +1,69 @@
 import ast
 import re
-from typing import List, Optional
-from dataclasses import dataclass
-from pathlib import Path
-
-@dataclass
-class Issue:
-    file: str
-    line: int
-    category: str
-    severity: str
-    message: str
-    suggestion: str
+import os
+from typing import List, Dict, Any
 
 class Scanner:
-    def __init__(self, categories: List[str] = None):
+    def __init__(self, categories=None):
         self.categories = categories or ['security', 'performance', 'style']
-        self.regex_patterns = {
-            'security': [
-                (r'eval\s*\(', 'Use ast.literal_eval or a safer alternative instead of eval.'),
-                (r'exec\s*\(', 'Avoid exec; use safer alternatives for dynamic code execution.'),
-                (r'os\.system\s*\(', 'Use subprocess.run or subprocess.Popen instead of os.system.'),
-                (r'pickle\.loads?\s*\(', 'Use json or yaml for safer deserialization instead of pickle.'),
-            ],
-            'performance': [
-                (r'import\s+time\s*;\s*time\.sleep\s*\(\s*0\.5\s*\)', 'Consider using a more efficient sleep mechanism or batching.'),
-                (r'while\s+True\s*:', 'Ensure the loop has a clear break condition to avoid infinite loops.'),
-            ],
-            'style': [
-                (r'#\s*FIXME', 'Address the FIXME comment or mark it as resolved.'),
-                (r'#\s*TODO', 'Address the TODO comment or mark it as resolved.'),
-                (r'^\s*#\s*$', 'Remove empty comments.'),
-            ]
-        }
 
-    def scan_file(self, filepath: str) -> List[Issue]:
-        issues = []
+    def scan_file(self, filepath: str) -> List[Dict[str, Any]]:
+        findings = []
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
-                lines = content.split('\n')
-                ast.parse(content)
-                
-                for category in self.categories:
-                    if category in self.regex_patterns:
-                        for pattern, suggestion in self.regex_patterns[category]:
-                            for i, line in enumerate(lines, 1):
-                                if re.search(pattern, line):
-                                    issues.append(Issue(
-                                        file=filepath,
-                                        line=i,
-                                        category=category,
-                                        severity='medium' if category == 'style' else 'high',
-                                        message=f'Found {pattern} in line {i}',
-                                        suggestion=suggestion
-                                    ))
-        except SyntaxError:
-            pass
-        except Exception:
-            pass
-        return issues
+                code = f.read()
+            
+            for cat in self.categories:
+                if cat == 'security':
+                    for pattern in [r'\beval\s*\(', r'\bexec\s*\(', r'\bsubprocess\.\w+\s*\(']:
+                        for match in re.finditer(pattern, code):
+                            line_num = code[:match.start()].count('\n') + 1
+                            findings.append({'file': filepath, 'line': line_num, 'category': cat, 'severity': 'HIGH', 'message': f"Found security issue: {match.group()}"})
+                elif cat == 'performance':
+                    for pattern in [r'import\s+.*', r'while\s+True:']:
+                        for match in re.finditer(pattern, code):
+                            line_num = code[:match.start()].count('\n') + 1
+                            findings.append({'file': filepath, 'line': line_num, 'category': cat, 'severity': 'MEDIUM', 'message': f"Found performance issue: {match.group()}"})
+                elif cat == 'style':
+                    for pattern in [r'#.*TODO', r'#.*FIXME', r'print\(\s*.*\s*\)\s*$']:
+                        for match in re.finditer(pattern, code):
+                            line_num = code[:match.start()].count('\n') + 1
+                            findings.append({'file': filepath, 'line': line_num, 'category': cat, 'severity': 'LOW', 'message': f"Found style issue: {match.group()}"})
+            
+            try:
+                tree = ast.parse(code)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Try):
+                        for handler in node.handlers:
+                            if handler.type is None:
+                                findings.append({'file': filepath, 'line': node.lineno, 'category': 'security', 'severity': 'HIGH', 'message': 'Found bare except block'})
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'print':
+                        found_in_loop = False
+                        for parent in ast.walk(tree):
+                            if isinstance(parent, (ast.For, ast.While)):
+                                for child in ast.walk(parent):
+                                    if child is node:
+                                        found_in_loop = True
+                                        break
+                                if found_in_loop:
+                                    break
+                        if found_in_loop:
+                            findings.append({'file': filepath, 'line': node.lineno, 'category': 'performance', 'severity': 'MEDIUM', 'message': 'Found print() inside loop'})
+                        else:
+                            findings.append({'file': filepath, 'line': node.lineno, 'category': 'style', 'severity': 'LOW', 'message': 'Found print() statement'})
+            except SyntaxError:
+                pass
+        except Exception as e:
+            findings.append({'file': filepath, 'line': 0, 'category': 'error', 'severity': 'CRITICAL', 'message': f'Could not scan file: {e}'})
+        return findings
 
-    def scan_directory(self, directory: str) -> List[Issue]:
-        issues = []
-        dir_path = Path(directory)
-        if dir_path.is_dir():
-            for filepath in dir_path.rglob('*.py'):
-                issues.extend(self.scan_file(str(filepath)))
-        return issues
+    def scan_directory(self, dirpath: str) -> List[Dict[str, Any]]:
+        all_findings = []
+        if not os.path.isdir(dirpath):
+            return all_findings
+        for root, dirs, files in os.walk(dirpath):
+            for file in files:
+                if file.endswith(('.py', '.js', '.ts')):
+                    filepath = os.path.join(root, file)
+                    all_findings.extend(self.scan_file(filepath))
+        return all_findings
