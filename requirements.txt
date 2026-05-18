@@ -1,2 +1,3 @@
-requests
-rich
+requests==2.31.0
+rich==13.6.0
+responses==0.24.0

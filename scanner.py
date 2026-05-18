@@ -1,61 +1,80 @@
-import ast
-import re
 import os
-from typing import List, Dict, Any
+import re
+import ast
+from typing import List, Dict, Optional
 
 SECURITY_PATTERNS = [
-    (re.compile(r'\beval\((.*)\)'), 'Use of eval() detected - potential code injection risk.'),
-    (re.compile(r'\bexec\((.*)\)'), 'Use of exec() detected - potential code injection risk.'),
-    (re.compile(r'\bpickle\.loads\((.*)\)'), 'Use of pickle.loads() detected - potential deserialization attack.'),
+    (r'eval\(', 'eval() call'),
+    (r'exec\(', 'exec() call'),
+    (r'pickle\.load', 'pickle.load() call'),
 ]
 
 PERFORMANCE_PATTERNS = [
-    (re.compile(r'\bfor\s+.*\s+in\s+range\(len\(.*\))'), 'Consider using enumerate() instead of indexing in a loop over range(len(...)).'),
+    (r'\.append\(.*\)', 'List append in loop'),
+    (r'list\(.*\)', 'list() conversion'),
 ]
 
 STYLE_PATTERNS = [
-    (re.compile(r'^#\s*$', re.MULTILINE), 'Empty comment line detected.'),
+    (r'^#\s*$', 'Empty comment'),
+    (r'^#.*$', 'Comment without code'),
 ]
 
-def scan_file(filepath: str, categories: List[str]) -> List[Dict[str, Any]]:
-    findings = []
+def scan_file(filepath: str, categories: Optional[List[str]] = None) -> List[Dict]:
+    issues = []
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            code = f.read()
-    except Exception:
-        return []
-    
-    # AST parsing for syntax errors
-    try:
-        ast.parse(code)
-    except SyntaxError:
-        findings.append({
+            content = f.read()
+        
+        try:
+            ast.parse(content)
+        except SyntaxError:
+            issues.append({
+                'file': filepath,
+                'category': 'style',
+                'severity': 'high',
+                'issue': 'SyntaxError: Invalid Python syntax',
+                'line': 0
+            })
+        
+        if categories is None:
+            categories = ['security', 'performance', 'style']
+            
+        for cat in categories:
+            if cat == 'security':
+                patterns = SECURITY_PATTERNS
+            elif cat == 'performance':
+                patterns = PERFORMANCE_PATTERNS
+            elif cat == 'style':
+                patterns = STYLE_PATTERNS
+            else:
+                continue
+                
+            for pattern, desc in patterns:
+                for i, line in enumerate(content.splitlines(), 1):
+                    if re.search(pattern, line):
+                        issues.append({
+                            'file': filepath,
+                            'category': cat,
+                            'severity': 'high' if cat == 'security' else 'medium',
+                            'issue': desc,
+                            'line': i
+                        })
+    except Exception as e:
+        issues.append({
             'file': filepath,
             'category': 'style',
-            'severity': 'MEDIUM',
-            'line': 0,
-            'message': 'Syntax error detected - file cannot be parsed.'
+            'severity': 'low',
+            'issue': f'Error reading file: {str(e)}',
+            'line': 0
         })
-    
-    for category in categories:
-        patterns = {'security': SECURITY_PATTERNS, 'performance': PERFORMANCE_PATTERNS, 'style': STYLE_PATTERNS}
-        for pattern, message in patterns.get(category, []):
-            for match in pattern.finditer(code):
-                line_num = code[:match.start()].count('\n') + 1
-                findings.append({
-                    'file': filepath,
-                    'category': category,
-                    'severity': 'HIGH' if category == 'security' else ('MEDIUM' if category == 'performance' else 'LOW'),
-                    'line': line_num,
-                    'message': message
-                })
-    return findings
+    return issues
 
-def scan_directory(dirpath: str, categories: List[str]) -> List[Dict[str, Any]]:
-    all_findings = []
-    for root, _, files in os.walk(dirpath):
+def scan_directory(dir_path: str, categories: Optional[List[str]] = None) -> List[Dict]:
+    all_issues = []
+    for root, dirs, files in os.walk(dir_path):
         for file in files:
             if file.endswith('.py'):
                 filepath = os.path.join(root, file)
-                all_findings.extend(scan_file(filepath, categories))
-    return all_findings
+                issues = scan_file(filepath, categories)
+                all_issues.extend(issues)
+    return all_issues
