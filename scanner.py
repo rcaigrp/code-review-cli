@@ -1,61 +1,68 @@
+import ast
 import os
 import re
-import ast
 
-SECURITY_PATTERNS = {
-    "eval": re.compile(r'\beval\s*\('),
-    "exec": re.compile(r'\bexec\s*\('),
-    "os_system": re.compile(r'os\.system\s*\('),
-}
+SECURITY_PATTERNS = [
+    (r"os\.system\(", "High", "Use of os.system() is a security risk"),
+    (r"subprocess\.call\(", "High", "Use of subprocess.call() is a security risk"),
+    (r"eval\(", "High", "Use of eval() is a security risk"),
+    (r"exec\(", "Medium", "Use of exec() is a security risk"),
+]
 
-PERFORMANCE_PATTERNS = {
-    "star_import": re.compile(r'from\s+\w+\s+import\s+\*'),
-    "long_line": re.compile(r'^.{100,}$', re.MULTILINE),
-}
+PERFORMANCE_PATTERNS = [
+    (r"for\s+in\s+range\(\s*len\(", "Medium", "Iterating by index instead of enumerate()"),
+    (r"import\s+re\s*$", "Low", "Consider using string methods instead of regex"),
+]
 
-STYLE_PATTERNS = {
-    "print_statement": re.compile(r'\bprint\s*\('),
-}
+STYLE_PATTERNS = [
+    (r"^\s*#.*$", "Info", "Comment without docstring"),
+    (r"^def\s+\w+\([^)]*\):$", "Low", "Function with no parameters"),
+]
 
-def scan_file(file_path: str, categories: list = None) -> list:
-    """Scan a single file for issues."""
+def scan_file(filepath, categories):
+    try:
+        with open(filepath, 'r') as f:
+            content = f.read()
+    except Exception:
+        return []
+
     issues = []
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-    except Exception as e:
-        return [{"type": "error", "name": "read_error", "file": file_path, "error": str(e)}]
+        tree = ast.parse(content)
+    except SyntaxError:
+        issues.append({'file': filepath, 'line': 0, 'severity': 'Info', 'message': 'Syntax error in file', 'category': 'security'})
+        return issues
 
-    categories = categories or ["security", "performance", "style"]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == 'eval':
+                if 'security' in categories:
+                    issues.append({'file': filepath, 'line': node.lineno, 'severity': 'High', 'message': 'Use of eval() is a security risk', 'category': 'security'})
+            if isinstance(node.func, ast.Name) and node.func.id == 'exec':
+                if 'security' in categories:
+                    issues.append({'file': filepath, 'line': node.lineno, 'severity': 'Medium', 'message': 'Use of exec() is a security risk', 'category': 'security'})
+            if isinstance(node.func, ast.Attribute):
+                if node.func.attr == 'system':
+                    if 'security' in categories:
+                        issues.append({'file': filepath, 'line': node.lineno, 'severity': 'High', 'message': 'Use of os.system() is a security risk', 'category': 'security'})
+                if node.func.attr == 'call':
+                    if 'security' in categories:
+                        issues.append({'file': filepath, 'line': node.lineno, 'severity': 'High', 'message': 'Use of subprocess.call() is a security risk', 'category': 'security'})
 
-    # Regex checks
-    if "security" in categories:
-        for name, pattern in SECURITY_PATTERNS.items():
-            if pattern.search(content):
-                issues.append({"type": "security", "name": name, "file": file_path})
+    lines = content.split('\n')
+    for cat, patterns in [('security', SECURITY_PATTERNS), ('performance', PERFORMANCE_PATTERNS), ('style', STYLE_PATTERNS)]:
+        if cat in categories:
+            for pattern, severity, msg in patterns:
+                for i, line in enumerate(lines, 1):
+                    if re.search(pattern, line):
+                        issues.append({'file': filepath, 'line': i, 'severity': severity, 'message': msg, 'category': cat})
+    return issues
 
-    if "performance" in categories:
-        for name, pattern in PERFORMANCE_PATTERNS.items():
-            if pattern.search(content):
-                issues.append({"type": "performance", "name": name, "file": file_path})
-
-    if "style" in categories:
-        style_check = STYLE_PATTERNS["print_statement"]
-        if style_check.search(content):
-            issues.append({"type": "style", "name": "print_statement", "file": file_path})
-
-    # AST checks
-    if "security" in categories or "performance" in categories or "style" in categories:
-        try:
-            tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ExceptHandler):
-                    if node.type is None:
-                        issues.append({"type": "security", "name": "bare_except", "file": file_path, "line": node.lineno})
-                if isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Name) and node.func.id == 'print':
-                        issues.append({"type": "style", "name": "print_statement_ast", "file": file_path, "line": node.lineno})
-        except SyntaxError:
-            issues.append({"type": "error", "name": "syntax_error", "file": file_path})
-
+def scan_directory(dirpath, categories):
+    issues = []
+    for root, _, files in os.walk(dirpath):
+        for f in files:
+            if f.endswith('.py'):
+                filepath = os.path.join(root, f)
+                issues.extend(scan_file(filepath, categories))
     return issues
