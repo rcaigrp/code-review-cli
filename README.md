@@ -4,10 +4,15 @@ A Python CLI tool that scans code files for common issues (security, performance
 
 ## Usage
 ```bash
-python main.py /path/to/dir --category security performance style
+python main.py /path/to/dir --categories security performance style
 ```
 
 ## Setup
 ```bash
 # No external dependencies required.
+```
+
+## Tests
+```bash
+cd /workspace/projects/Code-Review-CLI && python -m pytest acceptance_tests.py -v
 ```
