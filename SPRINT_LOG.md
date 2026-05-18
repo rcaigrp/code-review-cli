@@ -61,3 +61,7 @@ Rewriting the project completely to match the 'Org-Wide PR Aging & Review Veloci
 ## Turn 2 — Craft (2026-05-18 17:25 UTC)
 
 Implemented Code-Review-CLI project files: main.py (argparse CLI), scanner.py (regex + AST scanning), report.py (standard print), test_scanner.py (unit tests), acceptance_tests.py (smoke tests), requirements.txt, and updated README.md. All use standard library only, handling syntax errors, empty dirs, and missing fields gracefully. Tests will be run via pytest.
+
+## Turn 3 — Integrator (2026-05-18 17:31 UTC)
+
+
