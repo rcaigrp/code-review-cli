@@ -1,183 +1,84 @@
-"""Acceptance tests for Org-Wide PR Aging & Review Velocity CLI."""
-
 import unittest
 import os
 import sys
-import responses
-import json
+import tempfile
+from unittest.mock import patch, MagicMock
+from scanner import Scanner, Issue
+from report import print_report
 
-# Add project to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from monitor import GitHubMonitor
-from report import render_report, get_age_color, format_density
-
-
-class TestGitHubMonitor(unittest.TestCase):
-    """Test GitHub monitor functionality."""
-    
+class TestScanner(unittest.TestCase):
     def setUp(self):
-        """Set up test fixtures."""
-        os.environ['GITHUB_TOKEN'] = 'test-token'
-        self.monitor = GitHubMonitor()
-        
-    def test_criterion_1_fetch_repos(self):
-        """Test fetching repos for an organization."""
-        with responses.RequestsMock() as rsps:
-            # Mock repo endpoint
-            url = 'https://api.github.com/orgs/test-org/repos'
-            rsps.add(
-                responses.GET,
-                url,
-                json=[{'name': 'repo1', 'owner': {'login': 'test-org'}}],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            repos = self.monitor.fetch_repos('test-org')
-            self.assertEqual(len(repos), 1)
-            self.assertEqual(repos[0]['name'], 'repo1')
-            
-    def test_criterion_1_fetch_prs_with_pagination(self):
-        """Test fetching PRs with pagination."""
-        with responses.RequestsMock() as rsps:
-            # Mock PR endpoint
-            url = 'https://api.github.com/repos/test-org/repo1/pulls'
-            
-            # First page
-            rsps.add(
-                responses.GET,
-                url,
-                json=[{'number': 1, 'created_at': '2024-01-01T00:00:00Z', 'user': {'login': 'user1'}, 'base': {'repo': {'owner': {'login': 'test-org'}, 'name': 'repo1'}}}],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            # Second page (empty to stop pagination)
-            rsps.add(
-                responses.GET,
-                url,
-                json=[],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            prs = self.monitor.fetch_prs({'name': 'repo1', 'owner': {'login': 'test-org'}})
-            self.assertEqual(len(prs), 1)
-            self.assertEqual(prs[0]['number'], 1)
-            
-    def test_criterion_2_filter_stale_prs(self):
-        """Test filtering stale PRs."""
-        # Create test PRs
-        prs = [
-            {'created_at': '2024-01-01T00:00:00Z', 'user': {'login': 'user1'}, 'base': {'repo': {'owner': {'login': 'test-org'}, 'name': 'repo1'}}},
-            {'created_at': '2024-01-05T00:00:00Z', 'user': {'login': 'user2'}, 'base': {'repo': {'owner': {'login': 'test-org'}, 'name': 'repo1'}}},
-        ]
-        
-        # Filter with 14 day threshold
-        stale = self.monitor.filter_stale_prs(prs, min_days=14)
-        self.assertEqual(len(stale), 2)  # Both should be > 14 days old
-        
-    def test_criterion_2_calculate_review_density(self):
-        """Test review density calculation."""
-        pr = {
-            'created_at': '2024-01-01T00:00:00Z',
-            'user': {'login': 'user1'},
-            'base': {'repo': {'owner': {'login': 'test-org'}, 'name': 'repo1'}}
-        }
-        
-        # Calculate density with 100 comments over 10 days
-        days = self.monitor.calculate_days_open(pr)
-        density = self.monitor.calculate_review_density(pr, 100)
-        
-        self.assertGreater(density, 0)
-        self.assertAlmostEqual(density, 100 / days, places=2)
-        
-    def test_criterion_3_render_table(self):
-        """Test table rendering with color coding."""
-        data = [
-            {'repo': 'test-org/repo1', 'pr_number': 1, 'author': 'user1', 'days_open': 5, 'review_density': 2.0, 'link': 'http://test.com'},
-            {'repo': 'test-org/repo1', 'pr_number': 2, 'author': 'user2', 'days_open': 10, 'review_density': 1.0, 'link': 'http://test.com'},
-            {'repo': 'test-org/repo1', 'pr_number': 3, 'author': 'user3', 'days_open': 20, 'review_density': 0.5, 'link': 'http://test.com'},
-        ]
-        
-        # Test color coding
-        self.assertEqual(get_age_color(5), 'green')
-        self.assertEqual(get_age_color(10), 'yellow')
-        self.assertEqual(get_age_color(20), 'red')
-        
-        # Test density formatting
-        self.assertEqual(format_density(2.5), '2.50')
-        
-    def test_criterion_4_handle_empty_org(self):
-        """Test handling empty organization."""
-        with responses.RequestsMock() as rsps:
-            # Mock empty org
-            url = 'https://api.github.com/orgs/empty-org/repos'
-            rsps.add(
-                responses.GET,
-                url,
-                json=[],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            repos = self.monitor.fetch_repos('empty-org')
-            self.assertEqual(len(repos), 0)
-            
-    def test_criterion_4_handle_rate_limit(self):
-        """Test rate limit handling."""
-        with responses.RequestsMock() as rsps:
-            # Mock rate limit response
-            url = 'https://api.github.com/orgs/test-org/repos'
-            rsps.add(
-                responses.GET,
-                url,
-                json=[],
-                status=403,
-                headers={'X-RateLimit-Remaining': '0'}
-            )
-            
-            with self.assertRaises(Exception):
-                self.monitor.fetch_repos('test-org')
-                
-    def test_criterion_5_mock_api_calls(self):
-        """Test that API calls are properly mocked."""
-        with responses.RequestsMock() as rsps:
-            # Mock all necessary endpoints
-            url = 'https://api.github.com/orgs/test-org/repos'
-            rsps.add(
-                responses.GET,
-                url,
-                json=[{'name': 'repo1', 'owner': {'login': 'test-org'}}],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            # Mock PR endpoint
-            url = 'https://api.github.com/repos/test-org/repo1/pulls'
-            rsps.add(
-                responses.GET,
-                url,
-                json=[],
-                status=200,
-                headers={'X-RateLimit-Remaining': '100'}
-            )
-            
-            # Process org
-            data = self.monitor.process_org('test-org')
-            self.assertEqual(len(data), 0)
+        self.temp_dir = tempfile.mkdtemp()
+        self.scanner = Scanner(categories=['security', 'performance', 'style'])
 
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
 
-class TestReportRendering(unittest.TestCase):
-    """Test report rendering."""
-    
-    def test_criterion_3_render_format_density(self):
-        """Test density formatting."""
-        self.assertEqual(format_density(0), '0.00')
-        self.assertEqual(format_density(1), '1.00')
-        self.assertEqual(format_density(1.5), '1.50')
+    def test_scan_file_security_regex(self):
+        filepath = os.path.join(self.temp_dir, 'test.py')
+        with open(filepath, 'w') as f:
+            f.write('eval("code")\n')
+        
+        issues = self.scanner.scan_file(filepath)
+        self.assertTrue(len(issues) > 0)
+        self.assertEqual(issues[0].category, 'security')
 
+    def test_scan_file_style_regex(self):
+        filepath = os.path.join(self.temp_dir, 'test.py')
+        with open(filepath, 'w') as f:
+            f.write('# TODO: fix this\n')
+        
+        issues = self.scanner.scan_file(filepath)
+        self.assertTrue(len(issues) > 0)
+        self.assertEqual(issues[0].category, 'style')
+
+    def test_scan_file_syntax_error(self):
+        filepath = os.path.join(self.temp_dir, 'bad.py')
+        with open(filepath, 'w') as f:
+            f.write('def foo(\n')
+        
+        issues = self.scanner.scan_file(filepath)
+        self.assertEqual(len(issues), 0)
+
+    def test_scan_directory(self):
+        filepath = os.path.join(self.temp_dir, 'test.py')
+        with open(filepath, 'w') as f:
+            f.write('eval("code")\n')
+        
+        issues = self.scanner.scan_directory(self.temp_dir)
+        self.assertTrue(len(issues) > 0)
+
+    def test_scan_empty_directory(self):
+        issues = self.scanner.scan_directory(self.temp_dir)
+        self.assertEqual(len(issues), 0)
+
+class TestReport(unittest.TestCase):
+    @patch('builtins.print')
+    def test_print_report(self, mock_print):
+        issues = [Issue(file='test.py', line=1, category='security', severity='high', message='eval()', suggestion='Use literal_eval')]
+        print_report(issues)
+        mock_print.assert_called()
+
+    @patch('builtins.print')
+    def test_print_report_no_issues(self, mock_print):
+        print_report([])
+        mock_print.assert_called()
+
+class TestCLI(unittest.TestCase):
+    @patch('sys.argv', ['main.py', '/tmp/test_dir'])
+    @patch('scanner.Scanner')
+    @patch('report.print_report')
+    def test_main_cli(self, mock_report, mock_scanner_class, mock_scanner):
+        mock_scanner_class.return_value = mock_scanner
+        mock_scanner.scan_directory.return_value = []
+        
+        from main import main
+        main()
+        
+        mock_scanner_class.assert_called_once_with(categories=None)
+        mock_scanner.scan_directory.assert_called_once_with('/tmp/test_dir')
+        mock_report.assert_called_once_with([])
 
 if __name__ == '__main__':
     unittest.main()

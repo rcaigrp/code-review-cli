@@ -1,80 +1,70 @@
-import os
-import re
 import ast
-from typing import List, Dict, Optional
+import re
+from typing import List, Optional
+from dataclasses import dataclass
+from pathlib import Path
 
-SECURITY_PATTERNS = [
-    (r'eval\(', 'eval() call'),
-    (r'exec\(', 'exec() call'),
-    (r'pickle\.load', 'pickle.load() call'),
-]
+@dataclass
+class Issue:
+    file: str
+    line: int
+    category: str
+    severity: str
+    message: str
+    suggestion: str
 
-PERFORMANCE_PATTERNS = [
-    (r'\.append\(.*\)', 'List append in loop'),
-    (r'list\(.*\)', 'list() conversion'),
-]
+class Scanner:
+    def __init__(self, categories: List[str] = None):
+        self.categories = categories or ['security', 'performance', 'style']
+        self.regex_patterns = {
+            'security': [
+                (r'eval\s*\(', 'Use ast.literal_eval or a safer alternative instead of eval.'),
+                (r'exec\s*\(', 'Avoid exec; use safer alternatives for dynamic code execution.'),
+                (r'os\.system\s*\(', 'Use subprocess.run or subprocess.Popen instead of os.system.'),
+                (r'pickle\.loads?\s*\(', 'Use json or yaml for safer deserialization instead of pickle.'),
+            ],
+            'performance': [
+                (r'import\s+time\s*;\s*time\.sleep\s*\(\s*0\.5\s*\)', 'Consider using a more efficient sleep mechanism or batching.'),
+                (r'while\s+True\s*:', 'Ensure the loop has a clear break condition to avoid infinite loops.'),
+            ],
+            'style': [
+                (r'#\s*FIXME', 'Address the FIXME comment or mark it as resolved.'),
+                (r'#\s*TODO', 'Address the TODO comment or mark it as resolved.'),
+                (r'^\s*#\s*$', 'Remove empty comments.'),
+            ]
+        }
 
-STYLE_PATTERNS = [
-    (r'^#\s*$', 'Empty comment'),
-    (r'^#.*$', 'Comment without code'),
-]
-
-def scan_file(filepath: str, categories: Optional[List[str]] = None) -> List[Dict]:
-    issues = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
+    def scan_file(self, filepath: str) -> List[Issue]:
+        issues = []
         try:
-            ast.parse(content)
-        except SyntaxError:
-            issues.append({
-                'file': filepath,
-                'category': 'style',
-                'severity': 'high',
-                'issue': 'SyntaxError: Invalid Python syntax',
-                'line': 0
-            })
-        
-        if categories is None:
-            categories = ['security', 'performance', 'style']
-            
-        for cat in categories:
-            if cat == 'security':
-                patterns = SECURITY_PATTERNS
-            elif cat == 'performance':
-                patterns = PERFORMANCE_PATTERNS
-            elif cat == 'style':
-                patterns = STYLE_PATTERNS
-            else:
-                continue
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.split('\n')
+                ast.parse(content)
                 
-            for pattern, desc in patterns:
-                for i, line in enumerate(content.splitlines(), 1):
-                    if re.search(pattern, line):
-                        issues.append({
-                            'file': filepath,
-                            'category': cat,
-                            'severity': 'high' if cat == 'security' else 'medium',
-                            'issue': desc,
-                            'line': i
-                        })
-    except Exception as e:
-        issues.append({
-            'file': filepath,
-            'category': 'style',
-            'severity': 'low',
-            'issue': f'Error reading file: {str(e)}',
-            'line': 0
-        })
-    return issues
+                for category in self.categories:
+                    if category in self.regex_patterns:
+                        for pattern, suggestion in self.regex_patterns[category]:
+                            for i, line in enumerate(lines, 1):
+                                if re.search(pattern, line):
+                                    issues.append(Issue(
+                                        file=filepath,
+                                        line=i,
+                                        category=category,
+                                        severity='medium' if category == 'style' else 'high',
+                                        message=f'Found {pattern} in line {i}',
+                                        suggestion=suggestion
+                                    ))
+        except SyntaxError:
+            pass
+        except Exception:
+            pass
+        return issues
 
-def scan_directory(dir_path: str, categories: Optional[List[str]] = None) -> List[Dict]:
-    all_issues = []
-    for root, dirs, files in os.walk(dir_path):
-        for file in files:
-            if file.endswith('.py'):
-                filepath = os.path.join(root, file)
-                issues = scan_file(filepath, categories)
-                all_issues.extend(issues)
-    return all_issues
+    def scan_directory(self, directory: str) -> List[Issue]:
+        issues = []
+        dir_path = Path(directory)
+        if dir_path.is_dir():
+            for filepath in dir_path.rglob('*.py'):
+                issues.extend(self.scan_file(str(filepath)))
+        return issues
