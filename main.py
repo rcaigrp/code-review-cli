@@ -1,25 +1,25 @@
 import argparse
 import sys
-from scanner import Scanner
-
+import monitor
+import report
 
 def main():
-    parser = argparse.ArgumentParser(description='Code Review CLI')
-    parser.add_argument('path', help='Directory to scan')
-    parser.add_argument('--severity', choices=['HIGH', 'MEDIUM', 'LOW'], help='Filter by severity')
+    parser = argparse.ArgumentParser(description="Org-Wide PR Aging & Review Velocity CLI")
+    parser.add_argument("--org", required=True, help="GitHub organization name")
+    parser.add_argument("--min_days_stale", type=int, default=14, help="Minimum days open to consider PR stale")
+    parser.add_argument("--output_format", type=str, default="table", help="Output format (table)")
+    
     args = parser.parse_args()
+    
+    try:
+        data = monitor.fetch_pr_data(args.org, args.min_days_stale)
+        if not data:
+            print("No stale PRs found.")
+            return
+        report.render_table(data)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
-    scanner = Scanner()
-    findings = scanner.scan_directory(args.path)
-
-    if args.severity:
-        findings = [f for f in findings if f['severity'] == args.severity]
-
-    print(f"Scan Results for: {args.path}")
-    print("=" * 50)
-    for f in findings:
-        print(f"[{f['type']}] {f['file']}:{f['line']} - {f['pattern']} ({f['severity'].lower()})")
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

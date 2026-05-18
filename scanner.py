@@ -1,65 +1,77 @@
+import ast
 import os
 import re
-import ast
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
+PATTERNS = {
+    'security': [
+        (r'\beval\(', 'Use of eval() detected'),
+        (r'\bexec\(', 'Use of exec() detected'),
+    ],
+    'performance': [
+        (r'\bimport\s+\w+', 'Import statement detected'),
+        (r'\.append\(', 'List append method detected'),
+    ],
+    'style': [
+        (r'\bprint\(', 'Use of print() detected'),
+        (r'\bassert\s+.*$', 'Assertion without message'),
+    ]
+}
 
-class Scanner:
-    def __init__(self):
-        self.security_patterns = {
-            'sql_injection': re.compile(r'["\'].*(%s|SELECT|INSERT|UPDATE|DELETE|DROP|EXEC).*["\']'),
-            'xss': re.compile(r'["\'].*<(script|img|iframe).*["\']'),
-            'hardcoded_secret': re.compile(r'(?:password|secret|api_key|token)\s*=\s*["\'][^"\']{5,}["\']')
-        }
-        self.performance_patterns = {
-            'subprocess_import': re.compile(r'import\s+subprocess'),
-            'os_import': re.compile(r'import\s+os'),
-            'string_concat': re.compile(r'\w+\s*\+\s*["\']')
-        }
-        self.style_patterns = {
-            'long_line': re.compile(r'^.{80,}$'),
-            'missing_docstring': None # Handled via AST
-        }
+def analyze_ast(tree: ast.AST, filepath: str) -> List[Dict[str, Any]]:
+    issues = []
+    if isinstance(tree, ast.Module):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for subnode in ast.walk(node):
+                    if isinstance(subnode, (ast.Import, ast.ImportFrom)):
+                        issues.append({
+                            'file': filepath,
+                            'line': subnode.lineno,
+                            'type': 'performance',
+                            'severity': 'Medium',
+                            'message': 'Import inside function',
+                            'suggestion': 'Move imports to module level'
+                        })
+    return issues
 
-    def scan_file(self, filepath: str) -> List[Dict]:
-        findings = []
-        try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-                lines = content.splitlines()
-                for i, line in enumerate(lines, 1):
-                    for pattern_name, pattern in self.security_patterns.items():
-                        if pattern.search(line):
-                            findings.append({'file': filepath, 'line': i, 'type': 'SECURITY', 'severity': 'HIGH', 'pattern': pattern_name})
-                    for pattern_name, pattern in self.performance_patterns.items():
-                        if pattern.search(line):
-                            findings.append({'file': filepath, 'line': i, 'type': 'PERFORMANCE', 'severity': 'MEDIUM', 'pattern': pattern_name})
-                    if self.style_patterns['long_line'].search(line):
-                        findings.append({'file': filepath, 'line': i, 'type': 'STYLE', 'severity': 'LOW', 'pattern': 'long_line'})
-            
-            # AST Parsing
-            try:
-                tree = ast.parse(content)
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        for alias in node.names:
-                            if alias.name == 'os' or alias.name == 'subprocess':
-                                line_num = node.lineno
-                                findings.append({'file': filepath, 'line': line_num, 'type': 'PERFORMANCE', 'severity': 'MEDIUM', 'pattern': f'import_{alias.name}'})
-                    if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-                        if not ast.get_docstring(node):
-                            findings.append({'file': filepath, 'line': node.lineno, 'type': 'STYLE', 'severity': 'LOW', 'pattern': 'missing_docstring'})
-            except SyntaxError:
-                pass
-        except Exception:
-            pass
-        return findings
-
-    def scan_directory(self, path: str) -> List[Dict]:
-        findings = []
-        for root, dirs, files in os.walk(path):
-            for f in files:
-                if f.endswith('.py'):
-                    full_path = os.path.join(root, f)
-                    findings.extend(self.scan_file(full_path))
-        return findings
+def scan_directory(directory: str, severity_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    issues = []
+    exts = ('.py', '.js', '.ts')
+    for root, _, files in os.walk(directory):
+        for f in files:
+            if f.endswith(exts):
+                filepath = os.path.join(root, f)
+                try:
+                    with open(filepath, 'r') as fh:
+                        content = fh.read()
+                    for issue_type, patterns in PATTERNS.items():
+                        for pattern, msg in patterns:
+                            for match in re.finditer(pattern, content):
+                                line_no = content[:match.start()].count('\n') + 1
+                                issues.append({
+                                    'file': filepath,
+                                    'line': line_no,
+                                    'type': issue_type,
+                                    'severity': 'High' if issue_type == 'security' else ('Medium' if issue_type == 'performance' else 'Low'),
+                                    'message': msg,
+                                    'suggestion': f'Consider refactoring: {msg}'
+                                })
+                    try:
+                        tree = ast.parse(content)
+                        ast_issues = analyze_ast(tree, filepath)
+                        issues.extend(ast_issues)
+                    except SyntaxError:
+                        issues.append({
+                            'file': filepath,
+                            'line': 0,
+                            'type': 'style',
+                            'severity': 'Low',
+                            'message': 'Syntax error in file',
+                            'suggestion': 'Fix syntax errors before scanning'
+                        })
+                except Exception:
+                    pass
+                if severity_filter:
+                    issues = [i for i in issues if i.get('severity') == severity_filter]
+    return issues
